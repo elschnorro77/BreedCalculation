@@ -182,27 +182,75 @@ def check_maxlist(feed, fieldname):
     return maxlist
 
 
-def process_values(maxlist, fieldname, strstartdate):
+def process_values(maxlist, fieldname, strstartdate, bees=[8000]):
     logger = logging.getLogger(loggername + '.' + inspect.currentframe().f_code.co_name)
+    breedlist=[]
     try:
 
         #data=[]
         temp=[]
         date=[]
         startdate = dt.datetime.strptime(strstartdate+"T00:00:00+01:00", "%Y-%m-%dT%H:%M:%S%z")
+        
+        index = 0
         for day in maxlist:
+            breedcalc= {}
             datetime = dt.datetime.strptime(day['created_at'], "%Y-%m-%dT%H:%M:%S%z")
-            if day!=maxlist[0]:
-                if datetime > startdate:
-                    temp.append(float(day[fieldname]))
-                    date.append(datetime)
+            logger.debug("day: "+ str(day) + " maxlist[0]: " + str(maxlist[0]))
+            #if day!=maxlist[0]:
+            if datetime >= startdate:
+                temp.append(float(day[fieldname]))
+                date.append(datetime)
+                
+                breedcalc['date']=datetime.strftime("%Y-%m-%d")
+                breedcalc['temperature']=(float(day[fieldname]))
+                if breedcalc['temperature']>0:
+                    breedcalc['new_egg']=(floor(22.8295*breedcalc['temperature']**1.4254))
+                else:
+                    breedcalc['new_egg']=0
+                if index==0:
+                    breedcalc['eggs']=0
+                    breedcalc['openbrood']=0
+                    breedcalc['new_openbrood']=0
+                    breedcalc['closedbrood']=0
+                    breedcalc['new_closedbrood']=0
+                    breedcalc['total_brood']=0
+                    breedcalc['bees']=bees[0]
+                    breedcalc['new_bees']=0
+                elif index>0:
+                    breedcalc['eggs']=breedlist[index-1]['eggs']
+                    breedcalc['eggs']=breedcalc['eggs']+breedcalc['new_egg']
+                    breedcalc['openbrood']=breedlist[index-1]['openbrood']
+                    breedcalc['new_openbrood']=0
+                    breedcalc['closedbrood']=breedlist[index-1]['closedbrood']
+                    breedcalc['new_closedbrood']=0
+                    breedcalc['bees']=breedlist[index-1]['bees']
+                    breedcalc['new_bees']=0
+                if index>4:
+                    breedcalc['new_openbrood']=breedlist[index-4]['new_egg']
+                    breedcalc['eggs']=breedcalc['eggs']-breedcalc['new_openbrood']
+                    breedcalc['openbrood']=breedcalc['openbrood']+breedcalc['new_openbrood']
+                if index>13:
+                    breedcalc['new_closedbrood']=breedcalc['new_closedbrood']+breedlist[index-13]['new_egg']
+                    breedcalc['openbrood']=breedcalc['openbrood']-breedcalc['new_closedbrood']
+                    breedcalc['closedbrood']=breedcalc['closedbrood']+breedcalc['new_closedbrood']
+                    
+                if index>21:
+                    breedcalc['new_bees']=breedlist[index-21]['new_egg']
+                    breedcalc['closedbrood']=breedcalc['closedbrood']-breedcalc['new_bees']
+                    breedcalc['bees']=breedcalc['bees']+breedcalc['new_bees']
+                if index>40:
+                    breedcalc['bees']=breedcalc['bees']-breedlist[index-40]['new_bees']
+                breedcalc['total_brood']=breedcalc['openbrood']+breedcalc['closedbrood']
+                breedlist.append(breedcalc)
+                index=index+1
+                
 
 
         new_egg=[]
         eggs=[0]
         brood=[0]
         new_bees=[0]
-        bees=[8000]
         for t in temp:
             if t>0:
                 new_egg.append(floor(22.8295*t**1.4254))
@@ -231,7 +279,7 @@ def process_values(maxlist, fieldname, strstartdate):
                     rate=1./50
                 if month>2 and month<11:
                     rate=1./100
-                logger.debug("rate: " + str(rate) + " bees yesterday: " + str(bees[-1]) + " startbees today: " + str(bees[-1]*(1-rate)))
+                #logger.debug("rate: " + str(rate) + " bees yesterday: " + str(bees[-1]) + " startbees today: " + str(bees[-1]*(1-rate)))
                 temp_bees=bees[-1]*(1-rate)+new_bees[i] 
                 bees.append(int(temp_bees))
         #os.system("rm csv/*.csv")
@@ -243,6 +291,7 @@ def process_values(maxlist, fieldname, strstartdate):
                 file.write(date[i].strftime("%Y-%m-%d")+";"+str(temp[i]).replace(".", ",")+";"+str(eggs[i])+";"+str(brood[i])+";"+str(new_bees[i])+";" + str(bees[i]) + "\n" )
     except Exception as ex:
         logger.exception("Unhandled Exception: " + str(ex))
+    return breedlist
 
 
 def main():
@@ -270,7 +319,11 @@ def main():
             if len(maxlist) > 0:
                 write_json(folder+'maxlist_'+outfilename+'.json', maxlist)
                 write_csv(folder+'maxlist_'+outfilename+'.csv', maxlist, delimiter)
-                process_values(maxlist, fieldname, strstartdate)
+                breedlist = process_values(maxlist, fieldname, strstartdate)
+            if len(breedlist) > 0:
+                write_json(folder+'breedlist_'+outfilename+'.json', breedlist)
+                delimiter = ";"
+                write_csv(folder+'breedlist_'+outfilename+'.csv', breedlist, delimiter)
 
     except Exception as ex:
         logger.exception("Unhandled Exception: " + str(ex))
