@@ -76,7 +76,7 @@ def import_csv(filename="feeds.csv",delimiter=","):
                         """linedata['entry_id'] = splitline[1]
                         for i in range(1, 9):
                             linedata['field' + str(i)]= splitline[i+1]"""
-                    #logger.debug("linedata: "+ str(linedata))
+                    logger.debug("linedata: "+ str(linedata))
                     feed.append(linedata)
                 lines=index
         logger.debug("file: '"+ filename +"' contained "+ str(lines) + " lines")
@@ -101,7 +101,7 @@ def write_csv(filename, data, delimiter=","):
                 writer.writerow(row)
 
         return True
-    except IOError as ex1:
+    except IOError as ex:
         logger.exception("IOError: "+ str(ex))
     except Exception as ex:
         logger.exception("Exception: "+ str(ex))
@@ -129,6 +129,7 @@ def cleanfeed(feed):
 def maxvalue_day(feed, fieldname, delimiter):
     logger = logging.getLogger(loggername + '.' + inspect.currentframe().f_code.co_name)
     maxlist=[]
+    minlist=[]
     try:
         created_at = dt.datetime.strptime(feed[0]['created_at'], "%Y-%m-%dT%H:%M:%S%z")
         old_created_at = dt.date(int(created_at.strftime("%Y")), int(created_at.strftime("%m")), int(created_at.strftime("%d")))
@@ -146,6 +147,7 @@ def maxvalue_day(feed, fieldname, delimiter):
                 #data['created_at'] = old_created_at
                 logger.debug(str(datalist))
                 data[fieldname] = max(datalist)
+                data['min'+fieldname]= min(datalist)
                 datalist = []
                 maxlist.append(data)
                 data={}
@@ -159,6 +161,7 @@ def maxvalue_day(feed, fieldname, delimiter):
                         tempdate = tempdate+dt.timedelta(days=1)
                         data['created_at'] = tempdate.strftime("%Y-%m-%dT%H:%M:%S%z")
                         data[fieldname] = -1
+                        data['min'+fieldname] = -1
                         maxlist.append(data)
                         logger.critical('Fake entry for the dates ' + data['created_at'] + " added")
                         
@@ -187,9 +190,13 @@ def process_values(maxlist, fieldname, strstartdate, bees=[8000]):
     breedlist=[]
     try:
 
-        #data=[]
+        maxeggs=2000
+        daysegg=3
+        dayscellcapped=12
+        daysemergence=21
         temp=[]
         date=[]
+        queenstopped=False
         startdate = dt.datetime.strptime(strstartdate+"T00:00:00+01:00", "%Y-%m-%dT%H:%M:%S%z")
         
         index = 0
@@ -204,8 +211,16 @@ def process_values(maxlist, fieldname, strstartdate, bees=[8000]):
                 
                 breedcalc['date']=datetime.strftime("%Y-%m-%d")
                 breedcalc['temperature']=(float(day[fieldname]))
-                if breedcalc['temperature']>0:
-                    breedcalc['new_egg']=(floor(22.8295*breedcalc['temperature']**1.4254))
+                breedcalc['mintemperature']=(float(day['min'+fieldname]))
+                if queenstopped and breedcalc['temperature']>= 10 :
+                        queenstopped = False
+                if breedcalc['mintemperature']<= 1:
+                    queenstopped = True
+                if not queenstopped:
+                    if breedcalc['temperature']>0:
+                        breedcalc['new_egg']=(floor(22.8295*breedcalc['temperature']**1.4254))
+                        if breedcalc['new_egg'] > maxeggs:
+                            breedcalc['new_egg']= maxeggs
                 else:
                     breedcalc['new_egg']=0
                 if index==0:
@@ -226,17 +241,17 @@ def process_values(maxlist, fieldname, strstartdate, bees=[8000]):
                     breedcalc['new_closedbrood']=0
                     breedcalc['bees']=breedlist[index-1]['bees']
                     breedcalc['new_bees']=0
-                if index>4:
-                    breedcalc['new_openbrood']=breedlist[index-4]['new_egg']
+                if index>daysegg:
+                    breedcalc['new_openbrood']=breedlist[index-daysegg]['new_egg']
                     breedcalc['eggs']=breedcalc['eggs']-breedcalc['new_openbrood']
                     breedcalc['openbrood']=breedcalc['openbrood']+breedcalc['new_openbrood']
-                if index>13:
-                    breedcalc['new_closedbrood']=breedcalc['new_closedbrood']+breedlist[index-13]['new_egg']
+                if index>dayscellcapped:
+                    breedcalc['new_closedbrood']=breedcalc['new_closedbrood']+breedlist[index-dayscellcapped]['new_egg']
                     breedcalc['openbrood']=breedcalc['openbrood']-breedcalc['new_closedbrood']
                     breedcalc['closedbrood']=breedcalc['closedbrood']+breedcalc['new_closedbrood']
                     
-                if index>21:
-                    breedcalc['new_bees']=breedlist[index-21]['new_egg']
+                if index>daysemergence:
+                    breedcalc['new_bees']=breedlist[index-daysemergence]['new_egg']
                     breedcalc['closedbrood']=breedcalc['closedbrood']-breedcalc['new_bees']
                     breedcalc['bees']=breedcalc['bees']+breedcalc['new_bees']
                 if index>40:
@@ -299,7 +314,7 @@ def main():
     try:
         folder="csv/"
         filename="feeds.csv"
-        delimiter=";"
+        delimiter=","
         fieldname = 'field6'
         outfilename = 'raw'
         strstartdate = '2021-07-21'
